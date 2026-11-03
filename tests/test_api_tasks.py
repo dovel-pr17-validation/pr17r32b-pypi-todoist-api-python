@@ -1,0 +1,556 @@
+from __future__ import annotations
+
+import json
+import sys
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any
+
+if sys.version_info >= (3, 11):
+    from datetime import UTC
+else:
+    UTC = timezone.utc
+
+import pytest
+
+from tests.data.test_defaults import DEFAULT_API_URL, PaginatedResults
+from tests.utils.test_utils import api_headers, enumerate_async, mock_route
+
+if TYPE_CHECKING:
+    import respx
+
+    from todoist_api_python.api import TodoistAPI
+    from todoist_api_python.api_async import TodoistAPIAsync
+from todoist_api_python.models import Task
+
+
+@pytest.mark.asyncio
+async def test_get_task(
+    todoist_api: TodoistAPI,
+    todoist_api_async: TodoistAPIAsync,
+    respx_mock: respx.MockRouter,
+    default_task_response: dict[str, Any],
+    default_task: Task,
+) -> None:
+    task_id = "6X7rM8997g3RQmvh"
+    endpoint = f"{DEFAULT_API_URL}/tasks/{task_id}"
+
+    mock_route(
+        respx_mock,
+        method="GET",
+        url=endpoint,
+        request_headers=api_headers(),
+        response_json=default_task_response,
+    )
+
+    task = todoist_api.get_task(task_id)
+
+    assert len(respx_mock.calls) == 1
+    assert task == default_task
+
+    task = await todoist_api_async.get_task(task_id)
+
+    assert len(respx_mock.calls) == 2
+    assert task == default_task
+
+
+@pytest.mark.asyncio
+async def test_get_tasks(
+    todoist_api: TodoistAPI,
+    todoist_api_async: TodoistAPIAsync,
+    respx_mock: respx.MockRouter,
+    default_tasks_response: list[PaginatedResults],
+    default_tasks_list: list[list[Task]],
+) -> None:
+    endpoint = f"{DEFAULT_API_URL}/tasks"
+
+    cursor: str | None = None
+    for page in default_tasks_response:
+        mock_route(
+            respx_mock,
+            method="GET",
+            url=endpoint,
+            request_params={"cursor": cursor} if cursor else {},
+            request_headers=api_headers(),
+            response_json=page,
+            response_status=200,
+        )
+        cursor = page["next_cursor"]
+
+    count = 0
+
+    tasks_iter = todoist_api.get_tasks()
+
+    for i, tasks in enumerate(tasks_iter):
+        assert len(respx_mock.calls) == count + 1
+        assert tasks == default_tasks_list[i]
+        count += 1
+
+    tasks_async_iter = await todoist_api_async.get_tasks()
+
+    async for i, tasks in enumerate_async(tasks_async_iter):
+        assert len(respx_mock.calls) == count + 1
+        assert tasks == default_tasks_list[i]
+        count += 1
+
+
+@pytest.mark.asyncio
+async def test_get_tasks_with_filters(
+    todoist_api: TodoistAPI,
+    todoist_api_async: TodoistAPIAsync,
+    respx_mock: respx.MockRouter,
+    default_tasks_response: list[PaginatedResults],
+    default_tasks_list: list[list[Task]],
+) -> None:
+    project_id = "123"
+    section_id = "456"
+    parent_id = "789"
+    label = "test-label"
+    ids = ["1", "2", "3"]
+    limit = 30
+
+    params: dict[str, Any] = {
+        "project_id": project_id,
+        "section_id": section_id,
+        "parent_id": parent_id,
+        "label": label,
+        "ids": ",".join(ids),
+        "limit": limit,
+    }
+
+    endpoint = f"{DEFAULT_API_URL}/tasks"
+
+    cursor: str | None = None
+    for page in default_tasks_response:
+        mock_route(
+            respx_mock,
+            method="GET",
+            url=endpoint,
+            request_params=params | ({"cursor": cursor} if cursor else {}),
+            request_headers=api_headers(),
+            response_json=page,
+            response_status=200,
+        )
+        cursor = page["next_cursor"]
+
+    count = 0
+
+    tasks_iter = todoist_api.get_tasks(
+        project_id=project_id,
+        section_id=section_id,
+        parent_id=parent_id,
+        label=label,
+        ids=ids,
+        limit=limit,
+    )
+
+    for i, tasks in enumerate(tasks_iter):
+        assert len(respx_mock.calls) == count + 1
+        assert tasks == default_tasks_list[i]
+        count += 1
+
+    tasks_async_iter = await todoist_api_async.get_tasks(
+        project_id=project_id,
+        section_id=section_id,
+        parent_id=parent_id,
+        label=label,
+        ids=ids,
+        limit=limit,
+    )
+
+    async for i, tasks in enumerate_async(tasks_async_iter):
+        assert len(respx_mock.calls) == count + 1
+        assert tasks == default_tasks_list[i]
+        count += 1
+
+
+@pytest.mark.asyncio
+async def test_filter_tasks(
+    todoist_api: TodoistAPI,
+    todoist_api_async: TodoistAPIAsync,
+    respx_mock: respx.MockRouter,
+    default_tasks_response: list[PaginatedResults],
+    default_tasks_list: list[list[Task]],
+) -> None:
+    query = "today or overdue"
+    lang = "en"
+    params = {
+        "query": "today or overdue",
+        "lang": "en",
+    }
+
+    endpoint = f"{DEFAULT_API_URL}/tasks/filter"
+
+    cursor: str | None = None
+    for page in default_tasks_response:
+        mock_route(
+            respx_mock,
+            method="GET",
+            url=endpoint,
+            request_params=params | ({"cursor": cursor} if cursor else {}),
+            request_headers=api_headers(),
+            response_json=page,
+            response_status=200,
+        )
+        cursor = page["next_cursor"]
+
+    count = 0
+
+    tasks_iter = todoist_api.filter_tasks(
+        query=query,
+        lang=lang,
+    )
+
+    for i, tasks in enumerate(tasks_iter):
+        assert len(respx_mock.calls) == count + 1
+        assert tasks == default_tasks_list[i]
+        count += 1
+
+    # Test async iterator
+    tasks_async_iter = await todoist_api_async.filter_tasks(
+        query=query,
+        lang=lang,
+    )
+
+    async for i, tasks in enumerate_async(tasks_async_iter):
+        assert len(respx_mock.calls) == count + 1
+        assert tasks == default_tasks_list[i]
+        count += 1
+
+
+@pytest.mark.asyncio
+async def test_add_task_minimal(
+    todoist_api: TodoistAPI,
+    todoist_api_async: TodoistAPIAsync,
+    respx_mock: respx.MockRouter,
+    default_task_response: dict[str, Any],
+    default_task: Task,
+) -> None:
+    content = "Some content"
+
+    mock_route(
+        respx_mock,
+        method="POST",
+        url=f"{DEFAULT_API_URL}/tasks",
+        request_headers=api_headers(),
+        request_json={"content": content},
+        response_json=default_task_response,
+        response_status=200,
+    )
+
+    new_task = todoist_api.add_task(content=content)
+
+    assert len(respx_mock.calls) == 1
+    assert new_task == default_task
+
+    new_task = await todoist_api_async.add_task(content=content)
+
+    assert len(respx_mock.calls) == 2
+    assert new_task == default_task
+
+
+@pytest.mark.asyncio
+async def test_add_task_full(
+    todoist_api: TodoistAPI,
+    todoist_api_async: TodoistAPIAsync,
+    respx_mock: respx.MockRouter,
+    default_task_response: dict[str, Any],
+    default_task: Task,
+) -> None:
+    content = "Some content"
+    due_datetime = datetime(2021, 1, 1, 11, 0, 0, tzinfo=UTC)
+    args: dict[str, Any] = {
+        "description": "A description",
+        "project_id": "123",
+        "section_id": "456",
+        "parent_id": "789",
+        "labels": ["label1", "label2"],
+        "priority": 4,
+        "due_string": "today",
+        "due_lang": "en",
+        "assignee_id": "321",
+        "order": 3,
+        "auto_reminder": True,
+        "auto_parse_labels": True,
+        "duration": 60,
+        "duration_unit": "minute",
+    }
+
+    mock_route(
+        respx_mock,
+        method="POST",
+        url=f"{DEFAULT_API_URL}/tasks",
+        request_headers=api_headers(),
+        request_json={
+            "content": content,
+            "due_datetime": due_datetime.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        | args,
+        response_json=default_task_response,
+        response_status=200,
+    )
+
+    new_task = todoist_api.add_task(content=content, due_datetime=due_datetime, **args)
+
+    assert len(respx_mock.calls) == 1
+    assert new_task == default_task
+
+    new_task = await todoist_api_async.add_task(
+        content=content, due_datetime=due_datetime, **args
+    )
+
+    assert len(respx_mock.calls) == 2
+    assert new_task == default_task
+
+
+@pytest.mark.asyncio
+async def test_add_task_quick(
+    todoist_api: TodoistAPI,
+    todoist_api_async: TodoistAPIAsync,
+    respx_mock: respx.MockRouter,
+    default_task_meta_response: dict[str, Any],
+    default_task_meta: Task,
+) -> None:
+    text = "Buy milk tomorrow at 9am #Shopping @errands"
+    note = "Whole milk x6"
+    auto_reminder = True
+
+    mock_route(
+        respx_mock,
+        method="POST",
+        url=f"{DEFAULT_API_URL}/tasks/quick",
+        request_headers=api_headers(),
+        request_json={
+            "meta": True,
+            "text": text,
+            "auto_reminder": auto_reminder,
+            "note": note,
+        },
+        response_json=default_task_meta_response,
+        response_status=200,
+    )
+
+    task = todoist_api.add_task_quick(
+        text=text,
+        note=note,
+        auto_reminder=auto_reminder,
+    )
+
+    assert len(respx_mock.calls) == 1
+    assert task == default_task_meta
+
+    task = await todoist_api_async.add_task_quick(
+        text=text,
+        note=note,
+        auto_reminder=auto_reminder,
+    )
+
+    assert len(respx_mock.calls) == 2
+    assert task == default_task_meta
+
+
+@pytest.mark.asyncio
+async def test_update_task(
+    todoist_api: TodoistAPI,
+    todoist_api_async: TodoistAPIAsync,
+    respx_mock: respx.MockRouter,
+    default_task: Task,
+    default_task_response: dict[str, Any],
+) -> None:
+    args: dict[str, Any] = {
+        "content": "Updated content",
+        "description": "Updated description",
+        "labels": ["label1", "label2"],
+        "priority": 2,
+    }
+    updated_task_response = dict(default_task_response) | args
+
+    mock_route(
+        respx_mock,
+        method="POST",
+        url=f"{DEFAULT_API_URL}/tasks/{default_task.id}",
+        request_headers=api_headers(),
+        request_json=args,
+        response_json=updated_task_response,
+        response_status=200,
+    )
+
+    response = todoist_api.update_task(task_id=default_task.id, **args)
+
+    assert len(respx_mock.calls) == 1
+    assert response == Task.from_dict(updated_task_response)
+
+    response = await todoist_api_async.update_task(task_id=default_task.id, **args)
+
+    assert len(respx_mock.calls) == 2
+    assert response == Task.from_dict(updated_task_response)
+
+
+@pytest.mark.asyncio
+async def test_update_task_payload_mapping(
+    todoist_api: TodoistAPI,
+    todoist_api_async: TodoistAPIAsync,
+    respx_mock: respx.MockRouter,
+    default_task: Task,
+    default_task_response: dict[str, Any],
+) -> None:
+    args: dict[str, Any] = {
+        "order": 3,
+        "day_order": 2,
+        "collapsed": True,
+    }
+    expected_payload: dict[str, Any] = {
+        "child_order": 3,
+        "day_order": 2,
+        "is_collapsed": True,
+    }
+    updated_task_response = dict(default_task_response) | {
+        "child_order": args["order"],
+        "day_order": args["day_order"],
+        "is_collapsed": args["collapsed"],
+    }
+
+    mock_route(
+        respx_mock,
+        method="POST",
+        url=f"{DEFAULT_API_URL}/tasks/{default_task.id}",
+        request_headers=api_headers(),
+        response_json=updated_task_response,
+        response_status=200,
+    )
+
+    response = todoist_api.update_task(task_id=default_task.id, **args)
+
+    assert len(respx_mock.calls) == 1
+    assert response == Task.from_dict(updated_task_response)
+    actual_payload = json.loads(respx_mock.calls[0].request.content)
+    assert actual_payload == expected_payload
+
+    response = await todoist_api_async.update_task(task_id=default_task.id, **args)
+
+    assert len(respx_mock.calls) == 2
+    assert response == Task.from_dict(updated_task_response)
+    actual_payload = json.loads(respx_mock.calls[1].request.content)
+    assert actual_payload == expected_payload
+
+
+@pytest.mark.asyncio
+async def test_complete_task(
+    todoist_api: TodoistAPI,
+    todoist_api_async: TodoistAPIAsync,
+    respx_mock: respx.MockRouter,
+) -> None:
+    task_id = "6X7rM8997g3RQmvh"
+    endpoint = f"{DEFAULT_API_URL}/tasks/{task_id}/close"
+
+    mock_route(
+        respx_mock,
+        method="POST",
+        url=endpoint,
+        request_headers=api_headers(),
+        response_status=204,
+    )
+
+    response = todoist_api.complete_task(task_id)
+
+    assert len(respx_mock.calls) == 1
+    assert response is True
+
+    response = await todoist_api_async.complete_task(task_id)
+
+    assert len(respx_mock.calls) == 2
+    assert response is True
+
+
+@pytest.mark.asyncio
+async def test_uncomplete_task(
+    todoist_api: TodoistAPI,
+    todoist_api_async: TodoistAPIAsync,
+    respx_mock: respx.MockRouter,
+) -> None:
+    task_id = "6X7rM8997g3RQmvh"
+    endpoint = f"{DEFAULT_API_URL}/tasks/{task_id}/reopen"
+
+    mock_route(
+        respx_mock,
+        method="POST",
+        url=endpoint,
+        request_headers=api_headers(),
+        response_status=204,
+    )
+
+    response = todoist_api.uncomplete_task(task_id)
+
+    assert len(respx_mock.calls) == 1
+    assert response is True
+
+    response = await todoist_api_async.uncomplete_task(task_id)
+
+    assert len(respx_mock.calls) == 2
+    assert response is True
+
+
+@pytest.mark.asyncio
+async def test_move_task(
+    todoist_api: TodoistAPI,
+    todoist_api_async: TodoistAPIAsync,
+    respx_mock: respx.MockRouter,
+) -> None:
+    task_id = "6X7rM8997g3RQmvh"
+    endpoint = f"{DEFAULT_API_URL}/tasks/{task_id}/move"
+
+    mock_route(
+        respx_mock,
+        method="POST",
+        url=endpoint,
+        request_headers=api_headers(),
+        response_status=204,
+    )
+
+    response = todoist_api.move_task(task_id, project_id="123")
+
+    assert len(respx_mock.calls) == 1
+    assert response is True
+
+    response = await todoist_api_async.move_task(task_id, section_id="456")
+
+    assert len(respx_mock.calls) == 2
+    assert response is True
+
+    response = await todoist_api_async.move_task(task_id, parent_id="789")
+
+    assert len(respx_mock.calls) == 3
+    assert response is True
+
+    with pytest.raises(
+        ValueError,
+        match="Either `project_id`, `section_id`, or `parent_id` must be provided.",
+    ):
+        response = await todoist_api_async.move_task(task_id)
+
+
+@pytest.mark.asyncio
+async def test_delete_task(
+    todoist_api: TodoistAPI,
+    todoist_api_async: TodoistAPIAsync,
+    respx_mock: respx.MockRouter,
+) -> None:
+    task_id = "6X7rM8997g3RQmvh"
+    endpoint = f"{DEFAULT_API_URL}/tasks/{task_id}"
+
+    mock_route(
+        respx_mock,
+        method="DELETE",
+        url=endpoint,
+        request_headers=api_headers(),
+        response_status=204,
+    )
+
+    response = todoist_api.delete_task(task_id)
+
+    assert len(respx_mock.calls) == 1
+    assert response is True
+
+    response = await todoist_api_async.delete_task(task_id)
+
+    assert len(respx_mock.calls) == 2
+    assert response is True
